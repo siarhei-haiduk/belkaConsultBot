@@ -1,96 +1,43 @@
-from pyexpat.errors import messages
-
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, FSInputFile
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
+from datetime import datetime, timedelta
 
+from config import ADMIN_CHAT_ID, PDF_PATH, TEXT1, TEXT2, TEXT4, MENTION_INTERVAL
 import app.keyboards as kb
-from app.states import Chat, Image
-from app.generators import gpt_text, gpt_image, gpt_vision
-from app.database.requests import set_user, get_user, calculate
-
-from decimal import Decimal
-import uuid
-import os
+from app.states import ContactMe
+from app.database.requests import set_user, user_consulted, user_portfolio_sent, user_contact_sent
 
 user = Router()
 
-@user.message(F.text == 'Отмена')
-@user.message(CommandStart())
+
+@user.message(CommandStart(), F.chat.type == 'private')
 async def cmd_start(message: Message, state: FSMContext):
-    await set_user(message.from_user.id)
-    await message.answer('Добро пожаловать!', reply_markup=kb.main)
+    await state.clear()
+    await set_user(message.from_user.id, time=None)
+    await message.answer(text=TEXT1, parse_mode='html', reply_markup=await kb.main(message.from_user.id))
+
+
+@user.message(F.text.lower() == 'консультация')
+@user.message(F.text.lower() == 'бесплатная консультация')
+async def cmd_consult(message: Message, state: FSMContext):
+    await user_consulted(message.from_user.id)
+    await message.answer(text=TEXT4, parse_mode='html', reply_markup=await kb.contact(message.from_user.id))
+    await state.set_state(ContactMe.message)
+
+
+@user.message(ContactMe.message)
+async def forward_contact(message: Message, state: FSMContext):
+    await user_contact_sent(message.from_user.id)
+    await message.answer(text=TEXT2, parse_mode='html', reply_markup=await kb.main(message.from_user.id))
+    await message.bot.send_message(chat_id=ADMIN_CHAT_ID, text='Поступил новый запрос на консультацию:')
+    await message.send_copy(chat_id=ADMIN_CHAT_ID)
     await state.clear()
 
-@user.message(F.text == 'Чат')
-async def chatting(message: Message, state: FSMContext):
-    user = await get_user(message.from_user.id)
-    if Decimal(user.balance) > 0:
-        await state.set_state(Chat.text)
-        await message.answer('Введите Ваш запрос', reply_markup=kb.cancel)
-    else:
-        await message.answer('Недостаточно средств на балансе.')
 
+@user.message(F.text.lower() == 'портфолио')
+async def cmd_portfolio(message: Message):
+    await message.answer_document(document=FSInputFile(path=PDF_PATH), reply_markup=await kb.main(message.from_user.id))
+    await user_portfolio_sent(tg_id=message.from_user.id, time=datetime.now() + timedelta(seconds=MENTION_INTERVAL))
 
-@user.message(Chat.text, F.photo)
-async def chat_response(message: Message, state: FSMContext):
-    user = await get_user(message.from_user.id)
-    if Decimal(user.balance) > 0:
-        await state.set_state(Chat.wait)
-        file = await message.bot.get_file(message.photo[-1].file_id)
-        file_path = file.file_path
-        file_name = uuid.uuid4()
-        await message.bot.download_file(file_path, f'{file_name}.jpeg')
-        response = await gpt_vision(message.caption, 'gpt-4o', f'{file_name}.jpeg')
-        await calculate(message.from_user.id, response['usage'], 'gpt-4o', user)
-        await message.reply(response['response'])
-        await state.set_state(Chat.text)
-        os.remove(f'{file_name}.jpeg')
-    else:
-        await message.answer('Недостаточно средств на балансе.')
-
-
-@user.message(Chat.text)
-async def chat_response(message: Message, state: FSMContext):
-    user = await get_user(message.from_user.id)
-    if Decimal(user.balance) > 0:
-        await state.set_state(Chat.wait)
-        response = await gpt_text(message.text, 'gpt-4o')
-        await calculate(message.from_user.id, response['usage'], 'gpt-4o', user)
-        await message.reply(response['response'])
-        await state.set_state(Chat.text)
-    else:
-        await message.answer('Недостаточно средств на балансе.')
-
-
-@user.message(F.text == 'Генерация картинок')
-async def chatting(message: Message, state: FSMContext):
-    user = await get_user(message.from_user.id)
-    if Decimal(user.balance) > 0:
-        await state.set_state(Image.text)
-        await message.answer('Введите Ваш запрос', reply_markup=kb.cancel)
-    else:
-        await message.answer('Недостаточно средств на балансе.')
-
-
-@user.message(Image.text)
-async def chat_response(message: Message, state: FSMContext):
-    user = await get_user(message.from_user.id)
-    if Decimal(user.balance) > 0:
-        await state.set_state(Image.wait)
-        response = await gpt_image(message.text, 'dall-e-3')
-        await calculate(message.from_user.id, response['usage'], 'dall-e-3', user)
-        try:
-            await message.reply_photo(photo=response['response'])
-        except Exception as e:
-            print(e)
-        await state.set_state(Image.text)
-    else:
-        await message.answer('Недостаточно средств на балансе.')
-
-
-@user.message(Chat.wait)
-@user.message(Image.wait)
-async def wait_answer(message: Message):
-    await message.answer('Ваше сообщение генерируется. Пожалуйста, подождите.')

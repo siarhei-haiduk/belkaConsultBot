@@ -1,8 +1,6 @@
 from app.database.models import async_session
-from app.database.models import User, AiType, AiModel, Order
-from sqlalchemy import select, update, delete, desc
-
-from decimal import Decimal
+from app.database.models import User
+from sqlalchemy import select, update
 
 
 def connection(func):
@@ -13,12 +11,43 @@ def connection(func):
 
 
 @connection
-async def set_user(session, tg_id):
+async def set_user(session, tg_id, time):
     user = await session.scalar(select(User).where(User.tg_id == tg_id))
 
     if not user:
-        session.add(User(tg_id=tg_id, balance='0'))
+        session.add(User(tg_id=tg_id, time=time))
         await session.commit()
+
+
+@connection
+async def user_contact_sent(session, tg_id):
+    await session.execute(update(User).where(User.tg_id == tg_id).values(contact_sent=True))
+
+    await session.commit()
+
+
+@connection
+async def user_consulted(session, tg_id):
+    user = await session.scalar(select(User).where(User.tg_id == tg_id))
+
+    if not user:
+        session.add(User(tg_id=tg_id))
+    else:
+        await session.execute(update(User).where(User.tg_id == tg_id).values(consulted=True))
+
+    await session.commit()
+
+
+@connection
+async def user_portfolio_sent(session, tg_id, time):
+    user = await session.scalar(select(User).where(User.tg_id == tg_id))
+
+    if not user:
+        session.add(User(tg_id=tg_id, time=time, portfolio=True))
+    else:
+        await session.execute(update(User).where(User.tg_id == tg_id).values(time=time, portfolio=True))
+
+    await session.commit()
 
 
 @connection
@@ -27,15 +56,8 @@ async def get_user(session, tg_id):
 
 
 @connection
-async def get_users(session):
-    return await session.scalars(select(User))
+async def get_users(session, time):
+    return await session.scalars(select(User).where((User.time!= None) & (User.time <= time)))
 
-
-@connection
-async def calculate(session, tg_id, summ, model_name, user):
-    model = await session.scalar(select(AiModel).where(AiModel.name == model_name))
-    new_balance = Decimal(user.balance) - (Decimal(model.price) * Decimal(summ))
-    await session.execute(update(User).where(User.id == user.id).values(balance=str(new_balance)))
-    await session.commit()
 
 
