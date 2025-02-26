@@ -16,7 +16,11 @@ async def set_user(session, tg_id, time):
 
     if not user:
         session.add(User(tg_id=tg_id, time=time))
-        await session.commit()
+    else:
+        await session.execute(update(User).where(User.tg_id == tg_id).values(time=None, consulted=False,
+                                                                             portfolio=False, contact_sent=False))
+
+    await session.commit()
 
 
 @connection

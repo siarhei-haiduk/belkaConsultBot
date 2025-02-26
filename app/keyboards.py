@@ -11,7 +11,8 @@ async def main(tg_id):
         kb.button(text='Консультация')
     if not user.portfolio:
         kb.button(text='Портфолио')
-
+    if user.consulted & user.portfolio & user.contact_sent:
+        kb.button(text='Вернуться на старт')
     return kb.as_markup(resize_keyboard=True, remove_keyboard=True)
 
 

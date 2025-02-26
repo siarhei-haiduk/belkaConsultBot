@@ -2,6 +2,8 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from config import TOKEN, SCHEDULE_INTERVAL
@@ -11,7 +13,7 @@ from app.scheduler import test_func
 
 
 async def main():
-    bot = Bot(token=TOKEN)
+    bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
     scheduler = AsyncIOScheduler()
     scheduler.add_job(test_func, trigger='interval', minutes=SCHEDULE_INTERVAL, kwargs={'bot': bot})  # Add job to check events
